@@ -224,6 +224,13 @@ require_root
 CUBE_SANDBOX_NODE_IP="$(detect_node_ip)"
 export CUBE_SANDBOX_NODE_IP
 log "using node IP: ${CUBE_SANDBOX_NODE_IP}"
+CUBE_SANDBOX_ETH_NAME="${CUBE_SANDBOX_ETH_NAME:-$(detect_primary_interface || true)}"
+if [[ -n "${CUBE_SANDBOX_ETH_NAME}" ]]; then
+  export CUBE_SANDBOX_ETH_NAME
+  log "using primary network interface: ${CUBE_SANDBOX_ETH_NAME}"
+else
+  log "primary network interface not detected; keeping packaged Cubelet eth_name"
+fi
 
 install_dependencies
 check_hardware_preflight
@@ -320,6 +327,9 @@ upsert_env_kv "${RUNTIME_ENV_FILE}" "ONE_CLICK_DEPLOY_ROLE" "${DEPLOY_ROLE}"
 if [[ -n "${CUBE_SANDBOX_NODE_IP:-}" ]]; then
   upsert_env_kv "${RUNTIME_ENV_FILE}" "CUBE_SANDBOX_NODE_IP" "${CUBE_SANDBOX_NODE_IP}"
 fi
+if [[ -n "${CUBE_SANDBOX_ETH_NAME:-}" ]]; then
+  upsert_env_kv "${RUNTIME_ENV_FILE}" "CUBE_SANDBOX_ETH_NAME" "${CUBE_SANDBOX_ETH_NAME}"
+fi
 if [[ -n "${ONE_CLICK_CONTROL_PLANE_IP:-}" ]]; then
   upsert_env_kv "${RUNTIME_ENV_FILE}" "ONE_CLICK_CONTROL_PLANE_IP" "${ONE_CLICK_CONTROL_PLANE_IP}"
 fi
@@ -331,6 +341,18 @@ chmod +x "${INSTALL_PREFIX}/network-agent/bin/network-agent"
 chmod +x "${INSTALL_PREFIX}/Cubelet/bin/"*
 chmod +x "${INSTALL_PREFIX}/cube-shim/bin/containerd-shim-cube-rs" "${INSTALL_PREFIX}/cube-shim/bin/cube-runtime"
 chmod +x "${INSTALL_PREFIX}/scripts/one-click/"*.sh
+
+if [[ -n "${CUBE_SANDBOX_ETH_NAME:-}" ]]; then
+  cubelet_config="${INSTALL_PREFIX}/Cubelet/config/config.toml"
+  if rg -q '^[[:space:]]*eth_name = "' "${cubelet_config}"; then
+    sed -i "s/eth_name = \"[^\"]*\"/eth_name = \"${CUBE_SANDBOX_ETH_NAME}\"/" "${cubelet_config}"
+    if ! grep -Fq "eth_name = \"${CUBE_SANDBOX_ETH_NAME}\"" "${cubelet_config}"; then
+      log "WARNING: failed to patch eth_name in Cubelet config (${cubelet_config})"
+    fi
+  else
+    log "WARNING: Cubelet config missing eth_name key; skipped NIC patch (${cubelet_config})"
+  fi
+fi
 
 if [[ "${DEPLOY_ROLE}" != "compute" ]]; then
   chmod +x "${INSTALL_PREFIX}/CubeAPI/bin/cube-api"
