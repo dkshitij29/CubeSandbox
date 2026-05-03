@@ -5,6 +5,7 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -20,7 +21,7 @@ import (
 func WriteResponse(w http.ResponseWriter, code int, data interface{}) {
 	w.WriteHeader(code)
 	w.Header().Set("Content-Type", "application/json")
-	d, _ := types.Fastestjson.Marshal(data)
+	d, _ := FastestJsoniter.Marshal(data)
 	w.Write(d)
 }
 
@@ -31,7 +32,10 @@ func WriteListResponse(w http.ResponseWriter, code int, data interface{}) {
 			reqRspPool.Put(buffer)
 		}
 	}()
-	err := json.NewEncoder(buffer).Encode(data)
+
+	enc := json.NewEncoder(buffer)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(data)
 	if err != nil {
 		CubeLog.Fatalf("WriteListResponse fail:%v", err)
 		WriteResponse(w, http.StatusOK, &types.Res{
@@ -104,12 +108,39 @@ func GetBodyReq(r *http.Request, object interface{}) (err error) {
 	if err != nil {
 		return err
 	}
-	err = types.Fastestjson.Unmarshal(buffer.Bytes(), object)
+	err = FastestJsoniter.Unmarshal(buffer.Bytes(), object)
 	if err != nil {
 		return err
 	}
 	return nil
 }
+
+type stdJSONTool struct{}
+
+func (stdJSONTool) Marshal(v interface{}) ([]byte, error) {
+	buffer := bytes.NewBuffer(nil)
+	enc := json.NewEncoder(buffer)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+
+	// json.Encoder adds a trailing newline; trim it to behave like jsoniter.Marshal.
+	out := buffer.Bytes()
+	if n := len(out); n > 0 && out[n-1] == '\n' {
+		out = out[:n-1]
+	}
+	return out, nil
+}
+
+func (stdJSONTool) Unmarshal(data []byte, v interface{}) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	return dec.Decode(v)
+}
+
+var FastestJsoniter = stdJSONTool{}
 
 var reqRspPool bufferpool.BufferPool
 
